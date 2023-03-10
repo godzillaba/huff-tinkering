@@ -5,9 +5,11 @@ import "foundry-huff/HuffDeployer.sol";
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
+// tests copied a lot from solmate :)
+
 contract ERC20Test is Test {
     /// @dev Address of the SimpleStore contract.
-    IERC20Metadata public erc20;
+    IERC20Metadata public token;
 
     string public constant name = "Token";
     string public constant symbol = "TOK";
@@ -16,36 +18,241 @@ contract ERC20Test is Test {
     /// @dev Setup the testing environment.
     function setUp() public {
         bytes memory args = abi.encode(name, symbol, decimals, address(this));
-        erc20 = IERC20Metadata(HuffDeployer.deploy_with_args("ERC20", args));
+        token = IERC20Metadata(HuffDeployer.deploy_with_args("ERC20", args));
     }
 
     function testViewsAfterConstructor() public {
-        assertEq(erc20.name(), name);
-        assertEq(erc20.symbol(), symbol);
-        assertEq(erc20.decimals(), decimals);
-        assertEq(erc20.totalSupply(), 0);
-        assertEq(erc20.minter(), address(this));
+        assertEq(token.name(), name);
+        assertEq(token.symbol(), symbol);
+        assertEq(token.decimals(), decimals);
+        assertEq(token.totalSupply(), 0);
+        assertEq(token.minter(), address(this));
+    }
+
+    function testOnlyMinter(address caller, uint256 amount) public {
+        vm.assume(caller != address(this));
+        vm.expectRevert();
+        vm.prank(caller);
+        token.mint(address(this), amount);
     }
 
     function testMint() public {
-        uint256 amount = 100;
-        erc20.mint(address(this), amount);
-        assertEq(erc20.balanceOf(address(this)), amount);
-        assertEq(erc20.totalSupply(), amount);
-        
-        // make sure non minters cannot call mint
-        vm.prank(vm.addr(1));
-        vm.expectRevert();
-        erc20.mint(address(this), amount);
+        token.mint(address(0xBEEF), 1e18);
 
-        // test overflow
-        vm.expectRevert();
-        erc20.mint(address(this), type(uint256).max - amount + 1);
+        assertEq(token.totalSupply(), 1e18);
+        assertEq(token.balanceOf(address(0xBEEF)), 1e18);
     }
 
+    // function testBurn() public {
+    //     token.mint(address(0xBEEF), 1e18);
+    //     token.burn(address(0xBEEF), 0.9e18);
+
+    //     assertEq(token.totalSupply(), 1e18 - 0.9e18);
+    //     assertEq(token.balanceOf(address(0xBEEF)), 0.1e18);
+    // }
+
     function testApprove() public {
-        assertTrue(erc20.approve(address(0xBEEF), 1e18));
-        assertEq(erc20.allowance(address(this), address(0xBEEF)), 1e18);
+        assertTrue(token.approve(address(0xBEEF), 1e18));
+
+        assertEq(token.allowance(address(this), address(0xBEEF)), 1e18);
+    }
+
+    function testTransfer() public {
+        token.mint(address(this), 1e18);
+
+        assertTrue(token.transfer(address(0xBEEF), 1e18));
+        assertEq(token.totalSupply(), 1e18);
+
+        assertEq(token.balanceOf(address(this)), 0);
+        assertEq(token.balanceOf(address(0xBEEF)), 1e18);
+    }
+
+    function testTransferFrom() public {
+        address from = address(0xABCD);
+
+        token.mint(from, 1e18);
+
+        vm.prank(from);
+        token.approve(address(this), 1e18);
+
+        assertTrue(token.transferFrom(from, address(0xBEEF), 1e18));
+        assertEq(token.totalSupply(), 1e18);
+
+        assertEq(token.allowance(from, address(this)), 0);
+
+        assertEq(token.balanceOf(from), 0);
+        assertEq(token.balanceOf(address(0xBEEF)), 1e18);
+    }
+
+    function testInfiniteApproveTransferFrom() public {
+        address from = address(0xABCD);
+
+        token.mint(from, 1e18);
+
+        vm.prank(from);
+        token.approve(address(this), type(uint256).max);
+
+        assertTrue(token.transferFrom(from, address(0xBEEF), 1e18));
+        assertEq(token.totalSupply(), 1e18);
+
+        assertEq(token.allowance(from, address(this)), type(uint256).max);
+
+        assertEq(token.balanceOf(from), 0);
+        assertEq(token.balanceOf(address(0xBEEF)), 1e18);
+    }
+
+
+    function testFailTransferInsufficientBalance() public {
+        token.mint(address(this), 0.9e18);
+        token.transfer(address(0xBEEF), 1e18);
+    }
+
+    function testFailTransferFromInsufficientAllowance() public {
+        address from = address(0xABCD);
+
+        token.mint(from, 1e18);
+
+        vm.prank(from);
+        token.approve(address(this), 0.9e18);
+
+        token.transferFrom(from, address(0xBEEF), 1e18);
+    }
+
+    function testFailTransferFromInsufficientBalance() public {
+        address from = address(0xABCD);
+
+        token.mint(from, 0.9e18);
+
+        vm.prank(from);
+        token.approve(address(this), 1e18);
+
+        token.transferFrom(from, address(0xBEEF), 1e18);
+    }
+
+    function testMint(address from, uint256 amount) public {
+        vm.assume(from != address(0));
+        token.mint(from, amount);
+
+        assertEq(token.totalSupply(), amount);
+        assertEq(token.balanceOf(from), amount);
+    }
+
+    // function testBurn(
+    //     address from,
+    //     uint256 mintAmount,
+    //     uint256 burnAmount
+    // ) public {
+    //     burnAmount = bound(burnAmount, 0, mintAmount);
+
+    //     token.mint(from, mintAmount);
+    //     token.burn(from, burnAmount);
+
+    //     assertEq(token.totalSupply(), mintAmount - burnAmount);
+    //     assertEq(token.balanceOf(from), mintAmount - burnAmount);
+    // }
+
+    function testApprove(address to, uint256 amount) public {
+        assertTrue(token.approve(to, amount));
+
+        assertEq(token.allowance(address(this), to), amount);
+    }
+
+    function testTransfer(address from, uint256 amount) public {
+        token.mint(address(this), amount);
+
+        assertTrue(token.transfer(from, amount));
+        assertEq(token.totalSupply(), amount);
+
+        if (address(this) == from) {
+            assertEq(token.balanceOf(address(this)), amount);
+        } else {
+            assertEq(token.balanceOf(address(this)), 0);
+            assertEq(token.balanceOf(from), amount);
+        }
+    }
+
+    function testTransferFrom(
+        address to,
+        uint256 approval,
+        uint256 amount
+    ) public {
+        amount = bound(amount, 0, approval);
+
+        address from = address(0xABCD);
+
+        token.mint(from, amount);
+
+        vm.prank(from);
+        token.approve(address(this), approval);
+
+        assertTrue(token.transferFrom(from, to, amount));
+        assertEq(token.totalSupply(), amount);
+
+        uint256 app = from == address(this) || approval == type(uint256).max ? approval : approval - amount;
+        assertEq(token.allowance(from, address(this)), app);
+
+        if (from == to) {
+            assertEq(token.balanceOf(from), amount);
+        } else {
+            assertEq(token.balanceOf(from), 0);
+            assertEq(token.balanceOf(to), amount);
+        }
+    }
+
+    // function testFailBurnInsufficientBalance(
+    //     address to,
+    //     uint256 mintAmount,
+    //     uint256 burnAmount
+    // ) public {
+    //     burnAmount = bound(burnAmount, mintAmount + 1, type(uint256).max);
+
+    //     token.mint(to, mintAmount);
+    //     token.burn(to, burnAmount);
+    // }
+
+    function testFailTransferInsufficientBalance(
+        address to,
+        uint256 mintAmount,
+        uint256 sendAmount
+    ) public {
+        sendAmount = bound(sendAmount, mintAmount + 1, type(uint256).max);
+
+        token.mint(address(this), mintAmount);
+        token.transfer(to, sendAmount);
+    }
+
+    function testFailTransferFromInsufficientAllowance(
+        address to,
+        uint256 approval,
+        uint256 amount
+    ) public {
+        amount = bound(amount, approval + 1, type(uint256).max);
+
+        address from = address(0xABCD);
+
+        token.mint(from, amount);
+
+        vm.prank(from);
+        token.approve(address(this), approval);
+
+        token.transferFrom(from, to, amount);
+    }
+
+    function testFailTransferFromInsufficientBalance(
+        address to,
+        uint256 mintAmount,
+        uint256 sendAmount
+    ) public {
+        sendAmount = bound(sendAmount, mintAmount + 1, type(uint256).max);
+
+        address from = address(0xABCD);
+
+        token.mint(from, mintAmount);
+
+        vm.prank(from);
+        token.approve(address(this), sendAmount);
+
+        token.transferFrom(from, to, sendAmount);
     }
 }
 

@@ -28,9 +28,12 @@
 #define constant SYMBOL_LEN_LOC = 0x07
 #define constant MINTER_LOC = 0x08
 
+#define constant UINT_MAX = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+
+// TODO: nonpayable
+
 // args = (name, symbol, decimals, minter)
 // WILL NOT WORK IF NAME OR SYMBOL OCCUPIES MORE THAN 32 BYTES
-// TODO: decimals immutable?
 #define macro CONSTRUCTOR() = takes (0) returns (0) {
     // set name and symbol
     // each string is 3 wods
@@ -38,31 +41,31 @@
     // find offset
     0x0100                  // [argsSize]
     0x0100 codesize sub     // [argsOffset, argsSize]
-    0x80                    // [loc, argsOffset, argsSize]
-    codecopy                // [] (args now in memory at 0x80) todo: does it actually matter if we overwrite fmp and zero slot? will it change gas?
+    0x00                    // [loc, argsOffset, argsSize]
+    codecopy                // [] (args now in memory at 0x00)
     
-    // set name (name at 6th word = 0x80 + 5 * 0x20 = 0x120)
-    0x0120 mload            // [name]
+    // set name (name at 6th word = 5 * 0x20 = 0xa0)
+    0xa0 mload            // [name]
     [NAME_LOC] sstore       // []
 
-    // name size at 5th word = 0x80 + 4 * 0x20 = 0x100
-    0x0100 mload            // [name_len]
+    // name size at 5th word = 4 * 0x20 = 0x80
+    0x80 mload            // [name_len]
     [NAME_LEN_LOC] sstore   // []
 
-    // set symbol (symbol at 8th word = 0x80 + 7 * 0x20 = 0x160)
-    0x0160 mload            // [symbol]
+    // set symbol (symbol at 8th word = 7 * 0x20 = 0xe0)
+    0xe0 mload            // [symbol]
     [SYMBOL_LOC] sstore     // []
 
-    // symbol size at 7th word = 0x80 + 6 * 0x20 = 0x140
-    0x0140 mload            // [symbol_len]
+    // symbol size at 7th word = 6 * 0x20 = 0xc0
+    0xc0 mload            // [symbol_len]
     [SYMBOL_LEN_LOC] sstore // []
 
-    // set decimals (3rd word = 0x80 + 2 * 0x20 = 0xc0)
-    0xc0 mload              // [decimals]
+    // set decimals (3rd word = 2 * 0x20 = 0x40)
+    0x40 mload              // [decimals]
     [DECIMALS_LOC] sstore   // []
 
-    // set minter (4th word = 0x80 + 3 * 0x20 = 0xe0)
-    0xe0 mload               // [minter]
+    // set minter (4th word = 3 * 0x20 = 0x60)
+    0x60 mload               // [minter]
     [MINTER_LOC] sstore      // []
 }
 
@@ -168,6 +171,100 @@
     0x20 0x00 return
 }
 
+#define macro TRANSFER() = takes(0) returns(0) {
+    // first we need to get the current balance of msg.sender minus the amount
+    // make sure it doesn't underflow
+    // then we set the new balance of msg.sender
+
+    0x24 calldataload           // [amt]
+    caller                      // [caller, amt]
+    GET_MAPPING(BALANCES_LOC)   // [balance, amt]
+    dup2 dup2                   // [balance, amt, balance, amt]
+    sub                         // [balance - amt, balance, amt]
+    dup2 dup2                   // [balance - amt, balance, balance - amt, balance, amt]
+    gt transfer_fail jumpi      // [balance - amt, balance, amt]
+
+    caller                      // [caller, balance - amt, balance, amt]
+    SET_MAPPING(BALANCES_LOC)   // [balance, amt]
+    pop                         // [amt]
+
+    // then we add amt to the balance of to
+
+    0x04 calldataload dup1      // [to, to, amt]
+    GET_MAPPING(BALANCES_LOC)   // [balance, to, amt]
+    dup3                        // [amt, balance, to, amt]
+    add                         // [balance + amt, to, amt]
+    swap1                       // [to, balance + amt, amt]
+    SET_MAPPING(BALANCES_LOC)   // [amt]
+
+    0x01 0x00 mstore
+    0x20 0x00 return
+
+    transfer_fail:
+        0x00 0x00 revert
+}
+
+// args: from, to, amt
+#define macro TRANSFER_FROM() = takes(0) returns (0) {
+    // get allowance
+    // if it is not max, then subtract amt from it and check underflow
+
+    // subtract from from, check underflow
+
+    // add to to, do not check overflow
+
+    caller                              // [spender]
+    0x04 calldataload                   // [from, spender]
+
+    GET_ALLOWANCE_MAPPING()             // [allowance]
+    dup1                                // [allowance, allowance]
+
+    [UINT_MAX] eq                       // [allowance = max, allowance]
+
+    after_allowance_subtraction jumpi   // [allowance]
+
+    0x44 calldataload                   // [amt, allowance]
+    dup2                                // [allowance, amt, allowance]
+    sub                                 // [allowance - amt, allowance]
+    swap1                               // [allowance, allowance - amt]
+    dup2                                // [allowance - amt, allowance, allowance - amt]
+    gt transfer_from_fail jumpi         // [allowance - amt]
+
+    caller 0x04 calldataload            // [from, spender, allowance - amt]
+    SET_ALLOWANCE_MAPPING()             // []
+    0x00                                // [0x00]
+
+    after_allowance_subtraction:        // [trash]
+
+        // subtract from
+        pop                             // []
+        0x44 calldataload               // [amt]
+        0x04 calldataload               // [from, amt]
+        GET_MAPPING(BALANCES_LOC)       // [balance, amt]
+        swap1 dup2                      // [balance, amt, balance]
+        sub                             // [balance - amt, balance]
+        swap1 dup2                      // [balance - amt, balance, balance - amt]
+        gt transfer_from_fail jumpi     // [balance - amt]
+
+        0x04 calldataload               // [from, balance - amt]
+        SET_MAPPING(BALANCES_LOC)       // []
+
+        // add to
+        0x44 calldataload               // [amt]
+        0x24 calldataload               // [to, amt]
+        GET_MAPPING(BALANCES_LOC)       // [balance, amt]
+        add                             // [balance + amt]
+        0x24 calldataload               // [to, balance + amt]
+        SET_MAPPING(BALANCES_LOC)       // []
+
+        // return
+        0x01 0x00 mstore
+        0x20 0x00 return
+
+    transfer_from_fail:
+        0x00 0x00 revert
+}
+
 #define macro SET_ALLOWANCE_MAPPING() = takes (3) returns (0) {
     // [owner, spender, amt]
     0x00 mstore                     // [spender, amt]
@@ -239,6 +336,8 @@
     // Identify which function is being called.
     0x00 calldataload 0xE0 shr
     
+    dup1 __FUNC_SIG(transfer) eq _transfer jumpi
+    dup1 __FUNC_SIG(transferFrom) eq _transferFrom jumpi
     dup1 __FUNC_SIG(approve) eq _approve jumpi
     dup1 __FUNC_SIG(mint) eq _mint jumpi
     
@@ -271,4 +370,8 @@
         APPROVE()
     _mint:
         MINT()
+    _transfer:
+        TRANSFER()
+    _transferFrom:
+        TRANSFER_FROM()
 }
