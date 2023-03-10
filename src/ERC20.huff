@@ -66,29 +66,6 @@
     [MINTER_LOC] sstore      // []
 }
 
-#define macro SET_MAPPING(MAP_LOC) = takes (2) returns (0) {
-    // [key, val]
-    0x00 mstore             // [val]
-    <MAP_LOC> 0x20 mstore   // [val]
-
-    // memory is now [key, MAP_LOC]
-    // keccak it to get the final storage location
-    
-    0x40 0x00 sha3          // [storageLoc, val]
-    sstore                  // []
-}
-
-#define macro GET_MAPPING(MAP_LOC) = takes (1) returns (1) {
-    // [key]
-    0x00 mstore             // []
-    <MAP_LOC> 0x20 mstore   // []
-
-    // memory is now [key, MAP_LOC]
-    // keccak it to get the final storage location
-    
-    0x40 0x00 sha3          // [storageLoc]
-    sload                   // [val]
-}
 
 /* Methods */
 #define macro TOTAL_SUPPLY() = takes (0) returns (0) {
@@ -160,7 +137,7 @@
 
     // update total supply
     [TOTAL_SUPPLY_LOC] sstore   // [totalSupply, amount, to]
-    pop                         // [amount, to]
+    pop                         // [amount, to] TODO: can probably rework the dups up there to avoid this pop. save like 6 gas or something lol
 
     // increase balance
     dup2                        // [to, amount, to]
@@ -176,6 +153,30 @@
 
     mint_fail:
         0x00 0x00 revert
+}
+
+#define macro SET_MAPPING(MAP_LOC) = takes (2) returns (0) {
+    // [key, val]
+    0x00 mstore             // [val]
+    <MAP_LOC> 0x20 mstore   // [val]
+
+    // memory is now [key, MAP_LOC]
+    // keccak it to get the final storage location
+    
+    0x40 0x00 sha3          // [storageLoc, val]
+    sstore                  // []
+}
+
+#define macro GET_MAPPING(MAP_LOC) = takes (1) returns (1) {
+    // [key]
+    0x00 mstore             // []
+    <MAP_LOC> 0x20 mstore   // []
+
+    // memory is now [key, MAP_LOC]
+    // keccak it to get the final storage location
+    
+    0x40 0x00 sha3          // [storageLoc]
+    sload                   // [val]
 }
 
 #define macro RETURN_STRING(DATA_LOC, LEN_LOC) = takes (0) returns (0) {
