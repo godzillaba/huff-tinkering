@@ -1,0 +1,221 @@
+/* Interface */
+#define function totalSupply() view returns (uint256)
+#define function balanceOf(address) view returns (uint256)
+#define function transfer(address, uint256) nonpayable returns (bool)
+#define function allowance(address, address) view returns (uint256)
+#define function approve(address, uint256) nonpayable returns (bool)
+#define function transferFrom(address, address, uint256) nonpayable returns (bool)
+#define function mint(address, uint256) nonpayable returns (bool)
+
+#define function name() view returns (string memory)
+#define function symbol() view returns (string memory)
+#define function decimals() view returns (uint8)
+
+#define function minter() view returns (address)
+
+/* Events */
+#define event Transfer(address indexed, address indexed, uint256)
+#define event Approval(address indexed, address indexed, uint256)
+
+/* Storage Slots */
+#define constant TOTAL_SUPPLY_LOC = 0x00
+#define constant NAME_LOC = 0x01
+#define constant SYMBOL_LOC = 0x02
+#define constant BALANCES_LOC = 0x03
+#define constant ALLOWANCES_LOC = 0x04
+#define constant DECIMALS_LOC = 0x05
+#define constant NAME_LEN_LOC = 0x06
+#define constant SYMBOL_LEN_LOC = 0x07
+#define constant MINTER_LOC = 0x08
+
+// args = (name, symbol, decimals, minter)
+// WILL NOT WORK IF NAME OR SYMBOL OCCUPIES MORE THAN 32 BYTES
+// TODO: decimals immutable?
+#define macro CONSTRUCTOR() = takes (0) returns (0) {
+    // set name and symbol
+    // each string is 3 wods
+    // arguments are 3 + 3 + 1 + 1 = 8 words (0x0100 = 256 bytes)
+    // find offset
+    0x0100                  // [argsSize]
+    0x0100 codesize sub     // [argsOffset, argsSize]
+    0x80                    // [loc, argsOffset, argsSize]
+    codecopy                // [] (args now in memory at 0x80) todo: does it actually matter if we overwrite fmp and zero slot? will it change gas?
+    
+    // set name (name at 6th word = 0x80 + 5 * 0x20 = 0x120)
+    0x0120 mload            // [name]
+    [NAME_LOC] sstore       // []
+
+    // name size at 5th word = 0x80 + 4 * 0x20 = 0x100
+    0x0100 mload            // [name_len]
+    [NAME_LEN_LOC] sstore   // []
+
+    // set symbol (symbol at 8th word = 0x80 + 7 * 0x20 = 0x160)
+    0x0160 mload            // [symbol]
+    [SYMBOL_LOC] sstore     // []
+
+    // symbol size at 7th word = 0x80 + 6 * 0x20 = 0x140
+    0x0140 mload            // [symbol_len]
+    [SYMBOL_LEN_LOC] sstore // []
+
+    // set decimals (3rd word = 0x80 + 2 * 0x20 = 0xc0)
+    0xc0 mload              // [decimals]
+    [DECIMALS_LOC] sstore   // []
+
+    // set minter (4th word = 0x80 + 3 * 0x20 = 0xe0)
+    0xe0 mload               // [minter]
+    [MINTER_LOC] sstore      // []
+}
+
+#define macro SET_MAPPING(MAP_LOC) = takes (2) returns (0) {
+    // [key, val]
+    0x00 mstore             // [val]
+    <MAP_LOC> 0x20 mstore   // [val]
+
+    // memory is now [key, MAP_LOC]
+    // keccak it to get the final storage location
+    
+    0x40 0x00 sha3          // [storageLoc, val]
+    sstore                  // []
+}
+
+#define macro GET_MAPPING(MAP_LOC) = takes (1) returns (1) {
+    // [key]
+    0x00 mstore             // []
+    <MAP_LOC> 0x20 mstore   // []
+
+    // memory is now [key, MAP_LOC]
+    // keccak it to get the final storage location
+    
+    0x40 0x00 sha3          // [storageLoc]
+    sload                   // [val]
+}
+
+/* Methods */
+#define macro TOTAL_SUPPLY() = takes (0) returns (0) {
+    [TOTAL_SUPPLY_LOC] sload    // [totalSupply]
+    0x00 mstore                 // []
+    0x20 0x00 return
+}
+
+#define macro DECIMALS() = takes (0) returns (0) {
+    [DECIMALS_LOC] sload    // [decimals]
+    0x00 mstore             // []
+    0x20 0x00 return
+}
+
+#define macro MINTER() = takes (0) returns (0) {
+    [MINTER_LOC] sload    // [minter]
+    0x00 mstore             // []
+    0x20 0x00 return
+}
+
+#define macro NAME() = takes (0) returns (0) {
+    RETURN_STRING(NAME_LOC, NAME_LEN_LOC)
+}
+
+#define macro SYMBOL() = takes (0) returns (0) {
+    RETURN_STRING(SYMBOL_LOC, SYMBOL_LEN_LOC)
+}
+
+#define macro BALANCE_OF() = takes (0) returns (0) {
+    // get address from calldata
+    0x04 calldataload           // [addr]
+
+
+    // get balance
+    GET_MAPPING(BALANCES_LOC)   // [balance]
+    0x00 mstore
+    0x20 0x00 return
+}
+
+#define macro MINT() = takes (0) returns (0) {
+    // // get minter
+    [MINTER_LOC] sload      // [minter]
+
+    // get caller
+    caller                  // [caller, minter]
+
+    // check if caller is minter
+    eq 0x01 sub                     // [!isMinter]
+    mint_fail jumpi         // []
+
+    // // get to, cannot mint to zero address
+    0x04 calldataload       // [to]
+    dup1 0x00 eq            // [to == 0x0, to]
+    mint_fail jumpi         // [to]
+
+    // get amount
+    0x24 calldataload       // [amount, to]
+
+    // increase total supply
+    [TOTAL_SUPPLY_LOC] sload    // [totalSupply, amount, to]
+    dup1                        // [totalSupply, totalSupply, amount, to]
+    dup3                        // [amount, totalSupply, totalSupply, amount, to]
+    add                         // [totalSupply + amount, totalSupply, amount, to]
+    dup2                        // [totalSupply, totalSupply + amount, totalSupply, amount, to]
+    dup2                        // [totalSupply + amount, totalSupply, totalSupply + amount, totalSupply, amount, to]
+
+    // check for overflow
+    lt mint_fail jumpi          // [totalSupply + amount, totalSupply, amount, to]
+
+    // update total supply
+    [TOTAL_SUPPLY_LOC] sstore   // [totalSupply, amount, to]
+    pop                         // [amount, to]
+
+    // increase balance
+    dup2                        // [to, amount, to]
+    GET_MAPPING(BALANCES_LOC)   // [balance, amount, to]
+    add                         // [balance + amount, to]
+
+    swap1                       // [to, balance + amount]
+    SET_MAPPING(BALANCES_LOC)   // []
+
+
+    0x01 0x00 mstore
+    0x20 0x00 return
+
+    mint_fail:
+        0x00 0x00 revert
+}
+
+#define macro RETURN_STRING(DATA_LOC, LEN_LOC) = takes (0) returns (0) {
+    <DATA_LOC> sload        // [data]
+    <LEN_LOC> sload         // [len, data]
+    0x20                    // [0x20, len, data]
+
+    // write to memory
+    0x00 mstore             // [len, data]
+    0x20 mstore             // [data]
+    0x40 mstore             // []
+
+    0x60 0x00 return
+}
+
+#define macro MAIN() = takes (0) returns (0) {
+    // Identify which function is being called.
+    0x00 calldataload 0xE0 shr
+    dup1 __FUNC_SIG(totalSupply) eq _totalSupply jumpi
+    dup1 __FUNC_SIG(name) eq _name jumpi
+    dup1 __FUNC_SIG(symbol) eq _symbol jumpi
+    dup1 __FUNC_SIG(decimals) eq _decimals jumpi
+    dup1 __FUNC_SIG(balanceOf) eq _balanceOf jumpi
+    dup1 __FUNC_SIG(mint) eq _mint jumpi
+    dup1 __FUNC_SIG(minter) eq _minter jumpi
+
+    0x00 0x00 revert
+
+    _totalSupply:
+        TOTAL_SUPPLY()
+    _name:
+        NAME()
+    _symbol:
+        SYMBOL()
+    _decimals:
+        DECIMALS()
+    _balanceOf:
+        BALANCE_OF()
+    _mint:
+        MINT()
+    _minter:
+        MINTER()
+}
