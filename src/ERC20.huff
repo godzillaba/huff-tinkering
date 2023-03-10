@@ -69,21 +69,15 @@
 
 /* Methods */
 #define macro TOTAL_SUPPLY() = takes (0) returns (0) {
-    [TOTAL_SUPPLY_LOC] sload    // [totalSupply]
-    0x00 mstore                 // []
-    0x20 0x00 return
+    RETURN_WORD(TOTAL_SUPPLY_LOC)
 }
 
 #define macro DECIMALS() = takes (0) returns (0) {
-    [DECIMALS_LOC] sload    // [decimals]
-    0x00 mstore             // []
-    0x20 0x00 return
+    RETURN_WORD(DECIMALS_LOC)
 }
 
 #define macro MINTER() = takes (0) returns (0) {
-    [MINTER_LOC] sload    // [minter]
-    0x00 mstore             // []
-    0x20 0x00 return
+    RETURN_WORD(MINTER_LOC)
 }
 
 #define macro NAME() = takes (0) returns (0) {
@@ -105,6 +99,14 @@
     0x20 0x00 return
 }
 
+#define macro ALLOWANCE() = takes(0) returns(0) {
+    0x24 calldataload           // [spender]
+    0x04 calldataload           // [owner, spender]
+    GET_ALLOWANCE_MAPPING()     // [allowance]
+    0x00 mstore
+    0x20 0x00 return
+}
+
 #define macro MINT() = takes (0) returns (0) {
     // // get minter
     [MINTER_LOC] sload      // [minter]
@@ -113,7 +115,7 @@
     caller                  // [caller, minter]
 
     // check if caller is minter
-    eq 0x01 sub                     // [!isMinter]
+    eq 0x01 sub             // [!isMinter]
     mint_fail jumpi         // []
 
     // // get to, cannot mint to zero address
@@ -155,6 +157,41 @@
         0x00 0x00 revert
 }
 
+// TODO burn
+
+#define macro APPROVE() = takes(0) returns(0) {
+    0x24 calldataload   // [amt]
+    0x04 calldataload   // [spender, amt]
+    caller              // [caller, spender, amt]
+    SET_ALLOWANCE_MAPPING() // []
+    0x01 0x00 mstore
+    0x20 0x00 return
+}
+
+#define macro SET_ALLOWANCE_MAPPING() = takes (3) returns (0) {
+    // [owner, spender, amt]
+    0x00 mstore                     // [spender, amt]
+    [ALLOWANCES_LOC] 0x20 mstore    // [spender, amt]
+    0x40 0x00 sha3                  // [innerMappingLoc, spender, amt]
+
+    0x20 mstore                     // [spender, amt]
+    0x00 mstore                     // [amt]
+    0x40 0x00 sha3                  // [amtLoc, amt]
+    sstore                          // []
+}
+
+#define macro GET_ALLOWANCE_MAPPING() = takes (2) returns (1) {
+    // [owner, spender]
+    0x00 mstore                     // [spender]
+    [ALLOWANCES_LOC] 0x20 mstore    // [spender]
+    0x40 0x00 sha3                  // [innerMappingLoc, spender]
+
+    0x20 mstore                     // [spender]
+    0x00 mstore                     // []
+    0x40 0x00 sha3                  // [amtLoc]
+    sload                           // [amt]
+}
+
 #define macro SET_MAPPING(MAP_LOC) = takes (2) returns (0) {
     // [key, val]
     0x00 mstore             // [val]
@@ -192,15 +229,25 @@
     0x60 0x00 return
 }
 
+#define macro RETURN_WORD(WORD) = takes (0) returns (0) {
+    <WORD> sload            // [word]
+    0x00 mstore             // []
+    0x20 0x00 return
+}
+
 #define macro MAIN() = takes (0) returns (0) {
     // Identify which function is being called.
     0x00 calldataload 0xE0 shr
+    
+    dup1 __FUNC_SIG(approve) eq _approve jumpi
+    dup1 __FUNC_SIG(mint) eq _mint jumpi
+    
+    dup1 __FUNC_SIG(balanceOf) eq _balanceOf jumpi
+    dup1 __FUNC_SIG(allowance) eq _allowance jumpi
     dup1 __FUNC_SIG(totalSupply) eq _totalSupply jumpi
+    dup1 __FUNC_SIG(decimals) eq _decimals jumpi
     dup1 __FUNC_SIG(name) eq _name jumpi
     dup1 __FUNC_SIG(symbol) eq _symbol jumpi
-    dup1 __FUNC_SIG(decimals) eq _decimals jumpi
-    dup1 __FUNC_SIG(balanceOf) eq _balanceOf jumpi
-    dup1 __FUNC_SIG(mint) eq _mint jumpi
     dup1 __FUNC_SIG(minter) eq _minter jumpi
 
     0x00 0x00 revert
@@ -215,8 +262,13 @@
         DECIMALS()
     _balanceOf:
         BALANCE_OF()
-    _mint:
-        MINT()
     _minter:
         MINTER()
+    _allowance:
+        ALLOWANCE()
+
+    _approve:
+        APPROVE()
+    _mint:
+        MINT()
 }

@@ -43,7 +43,10 @@ contract ERC20Test is Test {
         erc20.mint(address(this), type(uint256).max - amount + 1);
     }
 
-    
+    function testApprove() public {
+        assertTrue(erc20.approve(address(0xBEEF), 1e18));
+        assertEq(erc20.allowance(address(this), address(0xBEEF)), 1e18);
+    }
 }
 
 
