@@ -18,7 +18,7 @@ contract ERC20Test is Test {
     /// @dev Setup the testing environment.
     function setUp() public {
         bytes memory args = abi.encode(name, symbol, decimals, address(this));
-        token = IERC20Metadata(HuffDeployer.deploy_with_args("ERC20", args));
+        token = IERC20Metadata(HuffDeployer.deploy_with_args("ERC20/ERC20", args));
     }
 
     function testViewsAfterConstructor() public {
