@@ -1,0 +1,18 @@
+#define constant CONSTRUCTOR_CODE_SIZE = 0x0b
+
+#define macro CONSTRUCTOR() = takes(0) returns(0) {
+    [CONSTRUCTOR_CODE_SIZE] codesize sub           // [actualCodeSize]
+    dup1 [CONSTRUCTOR_CODE_SIZE] returndatasize codecopy returndatasize return
+}
+
+#define macro GET_IMMUTABLE_ARGS(NEGATIVE_OFFSET) = takes(2) returns (0) {
+    // [destOffset, size]
+    <NEGATIVE_OFFSET> codesize sub      // [trueOffset, destOffset, size]
+    swap1                               // [destOffset, trueOffset, size]
+    codecopy                            // []
+}
+
+#define macro MAIN() = takes(0) returns(0) {
+    0x20 0x00 GET_IMMUTABLE_ARGS(0x20)
+    0x20 0x00 return
+}
